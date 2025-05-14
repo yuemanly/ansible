@@ -17,6 +17,9 @@ import jwt
 import datetime
 import logging
 from crypto_utils import CryptoUtils, set_crypto_keys, derive_key_from_credentials
+from dotenv import load_dotenv
+import sys
+load_dotenv()
 
 # 新增获取客户端真实IP的函数
 def get_client_ip():
@@ -42,8 +45,11 @@ ansible = AnsibleManager(db)
 crypto = CryptoUtils()
 
 # 账号密码变量
-ADMIN_USERNAME = os.getenv('ADMIN_USERNAME')
-ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
+if os.getenv('ADMIN_USERNAME') and os.getenv('ADMIN_PASSWORD'):
+    ADMIN_USERNAME = os.getenv('ADMIN_USERNAME')
+    ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
+else:
+    sys.exit("未设置管理员凭证环境变量(ADMIN_USERNAME/ADMIN_PASSWORD)，请设置这些环境变量以确保系统安全")
 
 # 检查必要的环境变量
 if not ADMIN_USERNAME or not ADMIN_PASSWORD:
@@ -390,6 +396,46 @@ def execute_command():
 @app.route('/api/logs', methods=['GET'])
 @handle_error
 @auth_required
+# def get_logs():
+#     """获取命令执行日志（美化版）"""
+#     limit = request.args.get('limit', default=100, type=int)
+#     logs = db.get_command_logs(limit)
+#     beautified_logs = []
+
+#     for log in logs:
+#         entry = {
+#             "time": log.get("time"),
+#             "command": log.get("command"),
+#             "hosts": []
+#         }
+#         result = log.get("result", {})
+#         # 处理 success
+#         for addr, info in result.get("success", {}).items():
+#             entry["hosts"].append({
+#                 "address": addr,
+#                 "status": "success",
+#                 "rc": info.get("rc"),
+#                 "stdout": info.get("stdout", "").splitlines(),
+#                 "stderr": info.get("stderr", "")
+#             })
+#         # 处理 failed
+#         for addr, info in result.get("failed", {}).items():
+#             entry["hosts"].append({
+#                 "address": addr,
+#                 "status": "failed",
+#                 "rc": info.get("rc"),
+#                 "stdout": info.get("stdout", "").splitlines(),
+#                 "stderr": info.get("stderr", "")
+#             })
+#         # 处理 unreachable
+#         for addr, info in result.get("unreachable", {}).items():
+#             entry["hosts"].append({
+#                 "address": addr,
+#                 "status": "unreachable",
+#                 "msg": info.get("msg", "")
+#             })
+#         beautified_logs.append(entry)
+#     return jsonify(beautified_logs)
 def get_logs():
     """获取命令执行日志"""
     limit = request.args.get('limit', default=100, type=int)

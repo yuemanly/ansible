@@ -40,6 +40,28 @@ interface AccessLog {
   status_code: number;
 }
 
+interface CommandResult {
+  success: {
+    [key: string]: {
+      rc: number;
+      stdout: string;
+      stderr: string;
+    };
+  };
+  failed: {
+    [key: string]: {
+      rc: number;
+      stdout: string;
+      stderr: string;
+    };
+  };
+  unreachable: {
+    [key: string]: {
+      msg: string;
+    };
+  };
+}
+
 function MainPage() {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [selectedHostIds, setSelectedHostIds] = useState<number[]>([]);
@@ -243,6 +265,58 @@ function MainPage() {
     hosts.forEach(host => handlePingHost(host.id));
   };
 
+  const formatCommandOutput = (result: CommandResult) => {
+    const output: string[] = [];
+    const timestamp = new Date().toLocaleTimeString();
+    
+    // 处理成功的主机
+    if (result.success && Object.keys(result.success).length > 0) {
+      for (const [host, data] of Object.entries(result.success)) {
+        output.push(`[${timestamp}] 主机 ${host} 执行成功:`);
+        if (data.stdout) {
+          // 把 stdout 按行分割并格式化
+          const lines = data.stdout.split('\n').filter(line => line.trim());
+          output.push('输出:');
+          lines.forEach((line: string) => output.push(`  ${line}`));
+        }
+        if (data.stderr) {
+          output.push('错误:');
+          data.stderr.split('\n').filter(line => line.trim())
+            .forEach((line: string) => output.push(`  ${line}`));
+        }
+      }
+    }
+
+    // 处理失败的主机
+    if (result.failed && Object.keys(result.failed).length > 0) {
+      for (const [host, data] of Object.entries(result.failed)) {
+        output.push(`[${timestamp}] 主机 ${host} 执行失败:`);
+        if (data.stdout) {
+          output.push('输出:');
+          data.stdout.split('\n').filter(line => line.trim())
+            .forEach((line: string) => output.push(`  ${line}`));
+        }
+        if (data.stderr) {
+          output.push('错误:');
+          data.stderr.split('\n').filter(line => line.trim())
+            .forEach((line: string) => output.push(`  ${line}`));
+        }
+      }
+    }
+
+    // 处理不可达的主机
+    if (result.unreachable && Object.keys(result.unreachable).length > 0) {
+      for (const [host, data] of Object.entries(result.unreachable)) {
+        output.push(`[${timestamp}] 主机 ${host} 不可达:`);
+        if (data.msg) {
+          output.push(`  原因: ${data.msg}`);
+        }
+      }
+    }
+
+    return output.join('\n');
+  };
+
   const handleExecuteCommand = async (target: 'selected' | 'all') => {
     if (!command.trim()) {
       toast.error("错误", { description: "请输入要执行的命令" });
@@ -262,7 +336,7 @@ function MainPage() {
     addLog(`[${new Date().toLocaleTimeString()}] 执行命令 '${command}' 于 ${target === 'all' ? '所有主机' : '主机 ' + (Array.isArray(targetHostIds) ? targetHostIds.join(', ') : '')}...`);
     try {
       const response = await api.post('/api/execute', { command: command, hosts: targetHostIds });
-      addLog(`[${new Date().toLocaleTimeString()}] 命令执行结果:\n${JSON.stringify(response.data, null, 2)}`);
+      addLog(formatCommandOutput(response.data));
       toast.success("命令执行成功");
     } catch (error) {
       console.error('Command execution failed:', error);
@@ -290,68 +364,6 @@ function MainPage() {
     setSelectedHostIds(prev =>
       checked ? [...prev, hostId] : prev.filter(id => id !== hostId)
     );
-  };
-
-  const openTerminal = (hostId: number) => {
-    // 打开新窗口
-    const terminalWindow = window.open(`/terminal/${hostId}`, `terminal_${hostId}`, 'width=800,height=600');
-    
-    // 确保新窗口成功打开
-    if (!terminalWindow) {
-      toast.error('无法打开终端', { description: '请允许浏览器打开弹出窗口' });
-      return;
-    }
-    
-    // 等待新窗口加载完成
-    const sendAuthInfo = () => {
-      try {
-        // 获取认证令牌
-        const token = authStorage.getToken();
-        const expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + 5); // 5小时过期时间
-        
-        // 如果terminalWindow可用且已加载完成，发送认证信息
-        if (terminalWindow && terminalWindow.document.readyState === 'complete') {
-          localStorage.setItem('isAuthenticated', 'true');
-          localStorage.setItem('authExpiresAt', expiresAt.toISOString());
-          if (token) {
-            localStorage.setItem('token', token);
-          }
-          
-          // 尝试向新窗口发送消息，以便它可以检测认证状态
-          terminalWindow.postMessage({
-            type: 'AUTH_INFO',
-            isAuthenticated: true,
-            authExpiresAt: expiresAt.toISOString(),
-            token: token
-          }, '*');
-          
-          // 移除敏感日志
-        } else {
-          // 如果窗口未完成加载，稍后再试
-          setTimeout(sendAuthInfo, 500);
-        }
-      } catch (e) {
-        // 移除敏感日志
-        toast.error('无法连接到终端', { description: '认证信息传递失败' });
-      }
-    };
-    
-    // 开始尝试发送认证信息
-    setTimeout(sendAuthInfo, 500);
-  };
-
-  const openUploadDialog = (target: 'selected' | 'all') => {
-    if (target === 'selected' && selectedHostIds.length === 0) {
-      toast.error("错误", { description: "请选择要上传文件的主机" });
-      return;
-    }
-    if (target === 'all' && hosts.length === 0) {
-        toast.error("错误", { description: "没有主机可供上传" });
-        return;
-    }
-    setUploadTarget(target);
-    setIsUploadDialogOpen(true);
   };
 
   const handleUploadComplete = () => {
@@ -391,6 +403,66 @@ function MainPage() {
 
   const isAllSelected = hosts.length > 0 && selectedHostIds.length === hosts.length;
   const isIndeterminate = selectedHostIds.length > 0 && selectedHostIds.length < hosts.length;
+
+  const openTerminal = (hostId: number) => {
+    // 打开新窗口
+    const terminalWindow = window.open(`/terminal/${hostId}`, `terminal_${hostId}`, 'width=800,height=600');
+    
+    // 确保新窗口成功打开
+    if (!terminalWindow) {
+      toast.error('无法打开终端', { description: '请允许浏览器打开弹出窗口' });
+      return;
+    }
+    
+    // 等待新窗口加载完成
+    const sendAuthInfo = () => {
+      try {
+        // 获取认证令牌
+        const token = authStorage.getToken();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 5); // 5小时过期时间
+        
+        // 如果terminalWindow可用且已加载完成，发送认证信息
+        if (terminalWindow && terminalWindow.document.readyState === 'complete') {
+          localStorage.setItem('isAuthenticated', 'true');
+          localStorage.setItem('authExpiresAt', expiresAt.toISOString());
+          if (token) {
+            localStorage.setItem('token', token);
+          }
+          
+          // 尝试向新窗口发送消息，以便它可以检测认证状态
+          terminalWindow.postMessage({
+            type: 'AUTH_INFO',
+            isAuthenticated: true,
+            authExpiresAt: expiresAt.toISOString(),
+            token: token
+          }, '*');
+          
+        } else {
+          // 如果窗口未完成加载，稍后再试
+          setTimeout(sendAuthInfo, 500);
+        }
+      } catch (e) {
+        toast.error('无法连接到终端', { description: '认证信息传递失败' });
+      }
+    };
+    
+    // 开始尝试发送认证信息
+    setTimeout(sendAuthInfo, 500);
+  };
+
+  const openUploadDialog = (target: 'selected' | 'all') => {
+    if (target === 'selected' && selectedHostIds.length === 0) {
+      toast.error("错误", { description: "请选择要上传文件的主机" });
+      return;
+    }
+    if (target === 'all' && hosts.length === 0) {
+        toast.error("错误", { description: "没有主机可供上传" });
+        return;
+    }
+    setUploadTarget(target);
+    setIsUploadDialogOpen(true);
+  };
 
   // 添加加载指示器
   if (isAuthChecking) {
@@ -773,7 +845,7 @@ function MainPage() {
         {/* GitHub Link */}
         <div className="text-center mt-6 mb-2">
           <a 
-            href="https://github.com/sky22333/ansible" 
+            href="https://github.com/yuemanly/ansible" 
             target="_blank" 
             rel="noopener noreferrer" 
             className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"

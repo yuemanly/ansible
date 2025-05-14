@@ -185,7 +185,8 @@ function PlaybookExecutor({ targetHostIds, onExecutionComplete, onClose }: Playb
           <div className="mt-4">
             <h5 className="text-sm font-medium mb-1">详细日志</h5>
             <div className="bg-black text-green-400 p-2 rounded font-mono text-xs h-[200px] overflow-y-auto whitespace-pre-wrap">
-              {executionResult.logs.join('\n')}
+              {/* {executionResult.logs.join('\n')} */}
+              {executionResult.logs.join('<br>')}
             </div>
           </div>
         </div>
